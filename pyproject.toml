@@ -1,0 +1,85 @@
+[tool.poetry]
+name = "mootdx"
+version = "0.11.7"
+description = "通达信数据读取接口."
+authors = ["bopo <ibopo@126.com>"]
+readme = "README.md"
+license = "MIT license"
+homepage = "https://www.mootdx.com"
+repository = "https://github.com/mootdx/mootdx"
+classifiers = [
+    "Development Status :: 2 - Pre-Alpha",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Natural Language :: English",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.6",
+    "Programming Language :: Python :: 3.7",
+    "Programming Language :: Python :: 3.8",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+]
+
+
+[tool.poetry.scripts]
+mootdx = "mootdx.__main__:entry"
+
+
+[tool.poetry.dependencies]
+python = "^3.8"
+httpx = "^0.25.0"
+tenacity = "^8.1.0"
+tdxpy = "^0.2.5"
+tqdm = "*"
+prettytable = "^3.5.0"
+click = "^8.1.3"
+typing-extensions = "^4.5.0"
+mini-racer = "^0.12.0"
+
+[tool.poetry.group.test.dependencies]
+pytest-cov = "^4.0.0"
+freezegun = "^1.2.2"
+pytest = "^7.3.1"
+
+[build-system]
+requires = ["poetry-core"]
+build-backend = "poetry.core.masonry.api"
+
+
+[tool.pytest.ini_options]
+testpaths = "tests"
+addopts = "-p no:warnings"
+log_cli = 0
+log_cli_level = "DEBUG"
+markers = [
+    "online: requires live network access to TDX or financial data servers",
+]
+
+
+[tool.commitizen]
+tag_format = "v$version"
+annotated_tag = true
+changelog_file = "docs/history.md"
+changelog_incremental = true
+update_changelog_on_bump = true
+version_provider = "poetry"
+version_files = [
+    "mootdx/__init__.py:__version__",
+]
+
+
+[tool.poe.tasks]
+venv = "poetry install --sync"
+lock = "poetry lock --no-update"
+
+test = "poetry run pytest"
+lint = "ruff check ./mootdx/*.py"
+
+dist = "poetry build -v"
+bump = "cz bump --yes -ch -cc --increment"
+
+sync = "make sync"
+pypi = "poetry publish --build --skip-existing"
+
+#{MAJOR,MINOR,PATCH}

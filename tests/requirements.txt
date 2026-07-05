@@ -1,0 +1,4 @@
+pytest-datadir
+pytest-cov
+pytest
+freezegun
