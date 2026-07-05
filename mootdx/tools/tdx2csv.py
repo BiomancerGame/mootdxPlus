@@ -33,7 +33,8 @@ def txt2csv(infile: str, outfile: str = None) -> pd.DataFrame:
 
 
 async def covert(src, dst):
-    return await asyncio.get_event_loop().run_in_executor(None, partial(txt2csv, infile=src, outfile=dst))
+    loop = asyncio.get_running_loop()
+    return await loop.run_in_executor(None, partial(txt2csv, infile=src, outfile=dst))
 
 
 def batch(src, dst):
@@ -43,19 +44,19 @@ def batch(src, dst):
     :param dst: 目标目录
     """
 
-    tasks = []
-    event = asyncio.get_event_loop()
+    async def convert_all():
+        tasks = []
 
-    # 分配任务
-    for x in glob.glob1(src, '*.txt'):
-        src_ = str(Path(src, x))
-        dst_ = src_.replace('.txt', '.csv')
+        # 分配任务
+        for x in glob.glob1(src, '*.txt'):
+            src_ = str(Path(src, x))
+            dst_ = src_.replace('.txt', '.csv')
+            tasks.append(covert(src=src_, dst=dst_))
 
-        task = event.create_task(covert(src=src_, dst=dst_))
-        tasks.append(task)
+        # 执行任务
+        return await asyncio.gather(*tasks)
 
-    # 执行任务
-    event.run_until_complete(asyncio.wait(tasks))
+    return asyncio.run(convert_all())
 
 
 __all__ = ('txt2csv', 'batch')

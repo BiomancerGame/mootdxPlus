@@ -38,7 +38,8 @@ async def fetch_file(downdir, file_obj):
         logger.warning(f'文件已经存在: {filepath}')
         return None
 
-    result = await asyncio.get_event_loop().run_in_executor(
+    loop = asyncio.get_running_loop()
+    result = await loop.run_in_executor(
         None,
         partial(financial.Financial().fetch_only, report_hook=None, filename=file_obj['filename'], downdir=downdir),
     )
@@ -110,11 +111,8 @@ class Affair(object):
 
             return True
 
-        tasks = []
-        event = asyncio.get_event_loop()
+        async def fetch_all():
+            tasks = [fetch_file(file_obj=x, downdir=downdir) for x in history.fetch_and_parse()]
+            return await asyncio.gather(*tasks)
 
-        for x in history.fetch_and_parse():
-            task = event.create_task(fetch_file(file_obj=x, downdir=downdir))
-            tasks.append(task)
-
-        event.run_until_complete(asyncio.wait(tasks))
+        return asyncio.run(fetch_all())
