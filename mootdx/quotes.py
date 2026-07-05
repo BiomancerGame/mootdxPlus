@@ -1,5 +1,6 @@
 import math
 from datetime import datetime
+from datetime import timedelta
 
 import pandas
 import pandas as pd
@@ -17,6 +18,7 @@ from mootdx import config
 from mootdx.consts import MARKET_SH
 from mootdx.consts import MARKET_SZ
 from mootdx.consts import return_last_value
+from mootdx.enhanced import EnhancedQuotesAdapter
 from mootdx.exceptions import MootdxValidationException
 from mootdx.logger import logger
 from mootdx.server import check_server
@@ -158,6 +160,7 @@ class StdQuotes(BaseQuotes):
 
         self.client = TdxHq_API(heartbeat=heartbeat, auto_retry=auto_retry, raise_exception=raise_exception)
         self.client.connect(ip, int(port), time_out=timeout)
+        self.enhanced = EnhancedQuotesAdapter(base_client=self.client, timeout=timeout)
 
         global instance
         instance = self
@@ -256,6 +259,115 @@ class StdQuotes(BaseQuotes):
             columns += [f'bid{index}', f'ask{index}', f'bid_vol{index}', f'ask_vol{index}']
 
         return data[[column for column in columns if column in data.columns]]
+
+    def _enhanced_adapter(self):
+        adapter = getattr(self, 'enhanced', None)
+        if adapter is None:
+            adapter = EnhancedQuotesAdapter(
+                base_client=getattr(self, 'client', None),
+                timeout=getattr(self, 'timeout', 15),
+            )
+            self.enhanced = adapter
+        return adapter
+
+    def auction(self, symbol, **kwargs):
+        """Get opening auction / 09:25 snapshot data."""
+
+        return self._enhanced_adapter().auction(symbol=symbol, **kwargs)
+
+    def capital_flow(self, symbol, **kwargs):
+        """Get latest capital flow for a symbol."""
+
+        return self._enhanced_adapter().capital_flow(symbol=symbol, **kwargs)
+
+    def fund_flow(self, symbol, start=None, end=None, **kwargs):
+        """Get historical fund flow for a symbol."""
+
+        return self._enhanced_adapter().fund_flow(symbol=symbol, start=start, end=end, **kwargs)
+
+    def boards(self, type='HY', **kwargs):  # noqa: A002
+        """Get board list. type supports HY and GN."""
+
+        return self._enhanced_adapter().boards(type=type, **kwargs)
+
+    def board_members(self, code, **kwargs):
+        """Get board member quotes."""
+
+        return self._enhanced_adapter().board_members(code=code, **kwargs)
+
+    def belong_boards(self, symbol, **kwargs):
+        """Get boards that a symbol belongs to."""
+
+        return self._enhanced_adapter().belong_boards(symbol=symbol, **kwargs)
+
+    def board_summary(self, code, members=False, **kwargs):
+        """Get board aggregate summary."""
+
+        return self._enhanced_adapter().board_summary(code=code, members=members, **kwargs)
+
+    def board_ranking(self, type='HY', sort_by='change', top=None, **kwargs):  # noqa: A002
+        """Get board ranking."""
+
+        return self._enhanced_adapter().board_ranking(type=type, sort_by=sort_by, top=top, **kwargs)
+
+    def market_stat(self, **kwargs):
+        """Get A-share market breadth statistics."""
+
+        adapter = getattr(self, 'enhanced', None)
+        if adapter is not None and hasattr(adapter, 'market_stat'):
+            return adapter.market_stat(**kwargs)
+
+        try:
+            result = self.client.get_security_quotes(
+                [[MARKET_SH, '880005'], [MARKET_SH, '880001'], [MARKET_SH, '880006']]
+            )
+        except ValidationException:
+            return to_data(None)
+
+        data = to_data(result, client=self, **kwargs)
+        if data.empty:
+            return data
+
+        def _value(row, column, default=0):
+            try:
+                value = row.get(column, default)
+            except AttributeError:
+                value = default
+            if pd.isna(value):
+                return default
+            return value
+
+        stat = data.iloc[0]
+        market_cap = data.iloc[1] if len(data) > 1 else {}
+        limits = data.iloc[2] if len(data) > 2 else {}
+        up_count = round(float(_value(stat, 'price')) * 10)
+        down_count = round(float(_value(stat, 'open')) * 10)
+        neutral_count = round(float(_value(stat, 'low')) * 10)
+        total_count = round(float(_value(stat, 'high')) * 10)
+
+        result = {
+            'up_count': up_count,
+            'down_count': down_count,
+            'neutral_count': neutral_count,
+            'suspended_count': max(0, total_count - up_count - down_count - neutral_count),
+            'total_count': total_count,
+            'total_amount': _value(stat, 'amount'),
+            'total_volume': _value(stat, 'vol', _value(stat, 'volume')),
+            'total_market_cap': float(_value(market_cap, 'price')) * 1e10 if len(data) > 1 else 0.0,
+            'limit_up_count': round(float(_value(limits, 'price')) * 10) if len(data) > 2 else 0,
+            'limit_down_count': round(float(_value(limits, 'open')) * 10) if len(data) > 2 else 0,
+        }
+        return to_data(result)
+
+    def symbol_info(self, symbol, **kwargs):
+        """Get symbol base quote information."""
+
+        return self._enhanced_adapter().symbol_info(symbol=symbol, **kwargs)
+
+    def price_limits(self, symbol, date=None, **kwargs):
+        """Get or compute A-share limit-up and limit-down prices."""
+
+        return self._enhanced_adapter().price_limits(symbol=symbol, date=date, **kwargs)
 
     def bars(self, symbol='000001', frequency=9, start=0, offset=800, **kwargs):
         """
@@ -446,6 +558,63 @@ class StdQuotes(BaseQuotes):
 
         return to_data(result, symbol=symbol, client=self, **kwargs)
 
+    def minutes_recent(self, symbol, days=5, **kwargs):
+        """Get recent multi-day minute time data."""
+
+        adapter = getattr(self, 'enhanced', None)
+        if adapter is not None and hasattr(adapter, 'minutes_recent'):
+            try:
+                data = adapter.minutes_recent(symbol=symbol, days=days, **kwargs)
+            except Exception as exc:
+                logger.debug('enhanced minutes_recent failed: %s', exc)
+            else:
+                if isinstance(data, pd.DataFrame) and not data.empty:
+                    return data
+
+        days = int(days)
+        if days <= 0:
+            raise ValueError('days must be positive')
+
+        options = dict(kwargs)
+        end = pd.to_datetime(options.pop('end', datetime.now().date()))
+        max_search_days = int(options.pop('max_search_days', days * 3 + 10))
+        parts = []
+
+        for offset in range(max_search_days):
+            date = (end - timedelta(days=offset)).strftime('%Y%m%d')
+            try:
+                data = self.minutes(symbol=symbol, date=date, **options)
+            except Exception as exc:
+                logger.debug('minutes_recent fallback failed for %s %s: %s', symbol, date, exc)
+                continue
+
+            if data.empty:
+                continue
+
+            if 'date' not in data.columns:
+                data = data.assign(date=date)
+            if 'code' not in data.columns:
+                data = data.assign(code=str(symbol))
+            parts.append(data)
+
+            if len(parts) >= days:
+                break
+
+        if not parts:
+            return to_data(None)
+
+        return pd.concat(reversed(parts)).sort_index()
+
+    def minute_extra(self, symbol, date=None, **kwargs):
+        """Get minute auxiliary chart data when available."""
+
+        return self._enhanced_adapter().minute_extra(symbol=symbol, date=date, **kwargs)
+
+    def mini_chart(self, symbol, date=None, **kwargs):
+        """Get sampled mini chart data when available."""
+
+        return self._enhanced_adapter().mini_chart(symbol=symbol, date=date, **kwargs)
+
     def transaction(self, symbol='', start=0, offset=800, **kwargs):
         """
         查询分笔成交
@@ -616,6 +785,51 @@ class StdQuotes(BaseQuotes):
         result = self.client.get_finance_info(market=market, code=symbol)
 
         return to_data(result, symbol=symbol, client=self, **kwargs)
+
+    def gbbq(self, symbol=None, filepath=None, **kwargs):
+        """Read GBBQ share-capital change records."""
+
+        return self._enhanced_adapter().gbbq(symbol=symbol, filepath=filepath, **kwargs)
+
+    def shares_at(self, symbol, date, **kwargs):
+        """Estimate share capital at a date from GBBQ records."""
+
+        return self._enhanced_adapter().shares_at(symbol=symbol, date=date, **kwargs)
+
+    def turnover(self, symbol, date=None, volume=None, **kwargs):
+        """Calculate turnover rate from volume and float shares."""
+
+        return self._enhanced_adapter().turnover(symbol=symbol, date=date, volume=volume, **kwargs)
+
+    def finance_batch(self, symbols, batch_size=80, **kwargs):
+        """Batch query basic finance snapshots."""
+
+        if not symbols:
+            return to_data(None)
+
+        if type(symbols) is str:
+            symbols = [symbols]
+
+        batch_size = self._page_size(batch_size, maximum=80)
+        parts = []
+
+        for start in range(0, len(symbols), batch_size):
+            batch = symbols[start:start + batch_size]
+            for symbol in batch:
+                try:
+                    data = self.finance(symbol=symbol, **kwargs)
+                except ValidationException:
+                    data = to_data(None)
+                if data.empty:
+                    continue
+                if 'code' not in data.columns:
+                    data = data.assign(code=str(symbol))
+                parts.append(data)
+
+        if not parts:
+            return to_data(None)
+
+        return pd.concat(parts, ignore_index=True)
 
     def k(self, symbol='', begin=None, end=None, **kwargs):
         """

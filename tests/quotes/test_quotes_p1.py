@@ -163,6 +163,7 @@ def test_quote_depth_keeps_depth_columns():
     ]
 
 
+@pytest.mark.online
 def test_p1_online_acceptance():
     client = Quotes.factory(market='std', bestip=True, timeout=5)
 

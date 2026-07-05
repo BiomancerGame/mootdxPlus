@@ -1,6 +1,7 @@
 import functools
 import os
 import pathlib
+import pickle
 import time
 from typing import Callable
 from typing import Optional
@@ -25,8 +26,9 @@ def file_cache(filepath: PathLike, refresh_time: Optional[float] = None):
                 if refresh_time is not None and os.path.getmtime(filepath) + int(refresh_time) < time.time():
                     raise FileNeedRefresh(f'{filepath} 太旧，需要刷新')
                 dataframe: pd.DataFrame = pd.read_pickle(filepath)
-            except (FileNotFoundError, EOFError):
+            except (FileNotFoundError, EOFError, FileNeedRefresh, NotImplementedError, pickle.UnpicklingError):
                 pathlib.Path(filepath).parent.mkdir(exist_ok=True, parents=True)
+                pathlib.Path(filepath).unlink(missing_ok=True)
 
                 dataframe = func(*args, **kwargs)
                 dataframe.to_pickle(filepath)

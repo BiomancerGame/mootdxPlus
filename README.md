@@ -36,6 +36,9 @@ from mootdx.quotes import Quotes
 -   新增 `bars_all()` / `index_bars_all()`，支持全量 K 线分页获取。
 -   新增 `quotes_batch()`，支持批量行情自动拆批。
 -   新增 `quote_depth()`，支持五档盘口字段读取。
+-   新增 `auction()`、`capital_flow()`、`fund_flow()`、`boards()`、`board_members()`、`belong_boards()`、`board_summary()`、`board_ranking()`、`market_stat()`、`symbol_info()`、`price_limits()`，补齐 P1-B 核心行情增强接口。
+-   新增 `minutes_recent()`、`minute_extra()`、`mini_chart()`、`gbbq()`、`shares_at()`、`turnover()`、`finance_batch()`，补齐 P2 数据补全接口。
+-   新增 `mootdx.cninfo`、`mootdx.indicators`、`mootdx.offline`，支持公告检索、技术指标和本地 vipdoc 写入。
 -   增加离线单元测试和真实联网验收测试，便于持续维护。
 
 ### P1 行情能力
@@ -46,7 +49,34 @@ from mootdx.quotes import Quotes
 | P1 | 五档盘口/深度行情 | `quote_depth()` | 已支持 | 基于 TDX 已解析盘口字段，便于构建行情面板。 |
 | P1 | 批量行情自动拆批 | `quotes_batch()` | 已支持 | 自动按批拆分大列表，提升大批量行情查询稳定性。 |
 | P1 | 全量 K 线分页 | `bars_all()` / `index_bars_all()` | 已支持 | 分页拉取并合并 K 线，适合历史数据补全。 |
-| P1 | 集合竞价 / 09:25 快照 | 待定 | 规划中 | A 股策略常用能力，后续会继续补充。 |
+| P1 | 集合竞价 / 09:25 快照 | `auction()` | 已支持 | 返回开盘集合竞价阶段成交明细。 |
+| P1 | 当日/近实时资金流向 | `capital_flow()` | 已支持 | 返回最新资金流向快照。 |
+| P1 | 历史资金流向 | `fund_flow()` | 已支持 | 支持按日期范围过滤历史资金流向。 |
+| P1 | 板块列表 / 成分股 / 所属板块 | `boards()` / `board_members()` / `belong_boards()` | 已支持 | 支持行业 `HY`、概念 `GN`，兼容 TDX 板块文件兜底。 |
+| P1 | 板块汇总 / 板块排行 | `board_summary()` / `board_ranking()` | 已支持 | 汇总成交额、资金流向、涨跌家数等字段。 |
+| P1 | 市场统计 | `market_stat()` | 已支持 | 基于通达信统计指数返回涨跌家数、涨跌停家数等。 |
+| P1 | 个股基础信息 | `symbol_info()` | 已支持 | 返回价格、市值、估值、资金等基础字段。 |
+| P1 | 涨跌停价 | `price_limits()` | 已支持 | 优先使用行情源返回结果，缺失时按 A 股基础规则兜底计算。 |
+
+### P2 数据补全能力
+
+| 优先级 | 能力 | 状态 |
+| --- | --- | --- |
+| P2 | 近期历史分时、分时副图、小走势图 | 已支持 |
+| P2 | GBBQ 股本变迁、指定日期股本、换手率辅助计算 | 已支持 |
+| P2 | 批量财务基础信息 | 已支持 |
+| P2 | 公告检索 `mootdx.cninfo` | 已支持 |
+| P2 | 技术指标 `mootdx.indicators`，首批 MACD/KDJ/RSI/BOLL | 已支持 |
+| P2 | 离线数据写入 / 同步到本地通达信 `vipdoc` | 已支持 |
+
+### 后续路线图
+
+| 优先级 | 能力 | 状态 |
+| --- | --- | --- |
+| P3 | 结构化模型 + JSON 序列化 | 规划中 |
+| P3 | CLI JSON / CSV / Table 输出增强 | 规划中 |
+| P3 | MCP 工具服务 | 规划中 |
+| P3 | 可选 Web API | 规划中 |
 
 后续计划
 --------
@@ -141,6 +171,34 @@ client.quotes_batch(['000001', '600036'])
 
 # 五档盘口
 client.quote_depth(['000001', '600036'])
+
+# 集合竞价 / 09:25 快照
+client.auction('000001')
+
+# 资金流向
+client.capital_flow('000001')
+client.fund_flow('000001', start='20260701', end='20260703')
+
+# 板块能力
+client.boards(type='HY')
+client.board_members('BK0475')
+client.belong_boards('000001')
+client.board_summary('BK0475')
+client.board_ranking(type='HY', sort_by='change', top=20)
+
+# 市场统计 / 个股基础信息 / 涨跌停价
+client.market_stat()
+client.symbol_info('000001')
+client.price_limits('000001')
+
+# P2 数据补全
+client.minutes_recent('000001', days=5)
+client.minute_extra('000001')
+client.mini_chart('000001')
+client.gbbq('000001', filepath='C:/new_tdx/T0002/hq_cache/gbbq')
+client.shares_at('000001', '2024-01-01', filepath='C:/new_tdx/T0002/hq_cache/gbbq')
+client.turnover('000001', date='2024-01-01', volume=1000000, filepath='C:/new_tdx/T0002/hq_cache/gbbq')
+client.finance_batch(['000001', '600036'])
 ```
 
 ### 通达信财务数据读取
@@ -156,6 +214,47 @@ Affair.fetch(downdir='tmp', filename='gpcw19960630.zip')
 
 # 下载全部
 Affair.parse(downdir='tmp')
+```
+
+### 巨潮公告检索
+
+```python
+from mootdx.cninfo import CninfoClient
+
+client = CninfoClient()
+announcements = client.get_announcements('000001', count=5)
+
+# 下载单条公告 PDF
+client.download_pdf(announcements.iloc[0], dest_dir='tmp')
+```
+
+### 技术指标
+
+```python
+from mootdx.indicators import MACD, KDJ, RSI, BOLL, compute_indicators
+
+bars = client.bars_all(symbol='600036', frequency=9)
+
+MACD(bars)
+KDJ(bars)
+RSI(bars)
+BOLL(bars)
+
+compute_indicators(bars, ['MACD', 'KDJ', 'RSI', 'BOLL'])
+```
+
+### 通达信离线数据写入
+
+```python
+from mootdx.offline import append_daily, append_minute, write_daily, write_minute
+
+# 写入或追加 vipdoc 日线
+write_daily('C:/new_tdx/vipdoc/sh/lday/sh600036.day', bars, append=True)
+append_daily('C:/new_tdx/vipdoc/sh/lday/sh600036.day', bars)
+
+# 写入或追加 1 分钟 / 5 分钟线
+write_minute('C:/new_tdx/vipdoc/sh/minline/sh600036.lc1', minute_df, kind='lc1', append=True)
+append_minute('C:/new_tdx/vipdoc/sh/fzline/sh600036.lc5', five_minute_df, kind='lc5')
 ```
 
 参与贡献
